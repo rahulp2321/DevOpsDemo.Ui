@@ -1,0 +1,45 @@
+name: Deploy Staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Git commit SHA image tag"
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to AWS Staging EC2
+        env:
+          SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          SSH_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+        run: |
+          install -m 600 /dev/null /tmp/deploy_key
+          printf '%s' "$SSH_KEY" > /tmp/deploy_key
+
+          ssh -o StrictHostKeyChecking=no -i /tmp/deploy_key "$SSH_USER@$SSH_HOST" "
+            mkdir -p /opt/devops-demo &&
+            cd /opt/devops-demo &&
+            echo '$GHCR_TOKEN' | docker login ghcr.io -u '$GHCR_USER' --password-stdin &&
+            export API_IMAGE=ghcr.io/$GITHUB_OWNER/devops-demo-api:$IMAGE_TAG &&
+            export UI_IMAGE=ghcr.io/$GITHUB_OWNER/devops-demo-ui:$IMAGE_TAG &&
+            export APP_VERSION=$IMAGE_TAG &&
+            docker compose -f docker-compose.staging.yml pull &&
+            docker compose -f docker-compose.staging.yml up -d &&
+            sleep 10 &&
+            curl -fsS http://localhost:3000/health
+          "

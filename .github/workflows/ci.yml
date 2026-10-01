@@ -24,11 +24,11 @@ jobs:
           node-version: '22'
 
       - name: Install UI dependencies
-        working-directory: src/devops-demo-ui
+        working-directory: ./
         run: npm install
 
       - name: Build UI
-        working-directory: src/devops-demo-ui
+        working-directory: ./
         run: npm run build
 
       - name: Login to GHCR
@@ -39,7 +39,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build UI image
-        run: docker build -f docker/ui/Dockerfile -t ghcr.io/${{ github.repository_owner }}/devops-demo-ui:${{ github.sha }} .
+        run: docker build -f Dockerfile -t ghcr.io/${{ github.repository_owner }}/devops-demo-ui:${{ github.sha }} .
 
       - name: Push UI image
         run: docker push ghcr.io/${{ github.repository_owner }}/devops-demo-ui:${{ github.sha }}

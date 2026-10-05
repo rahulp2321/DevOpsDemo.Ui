@@ -49,8 +49,8 @@ jobs:
       - name: Deploy UI to Staging EC2
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
           key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
 
           script: |

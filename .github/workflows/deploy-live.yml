@@ -1,45 +1,49 @@
-name: Deploy Live
+name: UI - Deploy to Live (manual, promote a tested image)
 
 on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Git commit SHA image tag"
+        description: "Commit SHA already deployed & tested on staging (use an older SHA to roll back)"
         required: true
         type: string
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
-  deploy:
+  deploy-live:
     runs-on: ubuntu-latest
-    environment:
-      name: live
-
+    # Configure "Required reviewers" on the 'live' environment in GitHub settings.
+    environment: live
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Deploy to AWS Live EC2
+      - name: Validate tag
         env:
-          SSH_HOST: ${{ secrets.LIVE_SSH_HOST }}
-          SSH_USER: ${{ secrets.LIVE_SSH_USER }}
-          SSH_KEY: ${{ secrets.LIVE_SSH_PRIVATE_KEY }}
-          GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_TAG: ${{ inputs.image_tag }}
-          GITHUB_OWNER: ${{ github.repository_owner }}
         run: |
-          install -m 600 /dev/null /tmp/deploy_key
-          printf '%s' "$SSH_KEY" > /tmp/deploy_key
+          [[ "$IMAGE_TAG" =~ ^[0-9a-f]{40}$ ]] || { echo "image_tag must be a full 40-char commit SHA"; exit 1; }
 
-          ssh -o StrictHostKeyChecking=no -i /tmp/deploy_key "$SSH_USER@$SSH_HOST" "
-            mkdir -p /opt/devops-demo &&
-            cd /opt/devops-demo &&
-            echo '$GHCR_TOKEN' | docker login ghcr.io -u '$GHCR_USER' --password-stdin &&
-            export API_IMAGE=ghcr.io/$GITHUB_OWNER/devops-demo-api:$IMAGE_TAG &&
-            export UI_IMAGE=ghcr.io/$GITHUB_OWNER/devops-demo-ui:$IMAGE_TAG &&
-            export APP_VERSION=$IMAGE_TAG &&
-            docker compose -f docker-compose.live.yml pull &&
-            docker compose -f docker-compose.live.yml up -d &&
-            sleep 10 &&
-            curl -fsS http://localhost:3000/health
-          "
+      - name: Lowercase owner
+        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check image exists in GHCR
+        run: docker manifest inspect ghcr.io/${{ env.OWNER }}/devops-demo-ui:${{ inputs.image_tag }} > /dev/null
+
+      - name: Deploy UI to live server
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: IMAGE_TAG
+          script_stop: true
+          script: /opt/devops-demo/deploy.sh ui "$IMAGE_TAG"
